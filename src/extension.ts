@@ -1,8 +1,21 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
+const sleep = (time: number) => {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve(true);
+        }, time);
+    });
+};
+
+let customCancellationToken: vscode.CancellationTokenSource | null = null;
+
 export function activate(context: vscode.ExtensionContext) {
-    // Función para abrir el archivo correspondiente en /infrastructure
+
+    const openedWindows = new Set<string>();
+
+    // Function to open the corresponding file in /infrastructure
     const openInfrastructureFile = async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
@@ -38,41 +51,94 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.window.showTextDocument(doc);
     };
 
-    // Comando manual
+    // Manual command
     const manualCommand = vscode.commands.registerCommand(
         "extension.openInfrastructureFile",
         openInfrastructureFile
     );
 
-    // Notificación automática al abrir un archivo en /domain
+    // Automatic notification when opening a file in /domain
     vscode.workspace.onDidOpenTextDocument(document => {
-        const filePath = document.fileName;
+        if (document.languageId !== 'typescript') {
+            return;
+        }        
+        const filePath = document.fileName;        
+        let isRealOpen = false;
+        for (const group of vscode.window.tabGroups.all) {
+            for (const tab of group.tabs) {
+                // Check if the tab is active and if its input is a text document
+                if (tab.isActive && tab.input instanceof vscode.TabInputText) {
+                    // Perform actions here when a document is opened in an active tab
+                    if (tab.input.uri.toString() === document.uri.toString()) {
+                        isRealOpen = true;
+                    }
+                }
+            }
+        }
+
+        if (!isRealOpen) {
+            return;
+        }
+
         if (filePath.includes(`${path.sep}domain${path.sep}`)) {
             const infrastructurePath = filePath.replace(
                 `${path.sep}domain${path.sep}`,
                 `${path.sep}infrastructure${path.sep}`
             );
 
+            if (openedWindows.has(filePath)) {
+                return;
+            }
+
             vscode.workspace.fs.stat(vscode.Uri.file(infrastructurePath)).then(
                 () => {
-                    vscode.window
-                        .showInformationMessage(
-                            `Implementation found on ${infrastructurePath}`,
-                            'Open',
-                            'Ignore'
-                        )
-                        .then(selection => {
-                            if (selection === 'Open') {
-                                vscode.workspace
-                                    .openTextDocument(infrastructurePath)
-                                    .then(doc => {
-                                        vscode.window.showTextDocument(doc);
-                                    });
-                            }
-                        });
+                    const message = `...${infrastructurePath.substring(infrastructurePath.lastIndexOf('infrastructure'))}`;
+                    const commandId = `open-${infrastructurePath}`;
+                    vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        cancellable: false,
+                        },
+                        async (progress, token) => {
+                            return new Promise((async (resolve) => {
+                                openedWindows.add(infrastructurePath);
+                                customCancellationToken = new vscode.CancellationTokenSource();
+
+                                customCancellationToken.token.onCancellationRequested(() => {
+                                    customCancellationToken?.dispose();
+                                    customCancellationToken = null;
+                                    openedWindows.delete(infrastructurePath);
+                                    resolve(null);
+                                    return;
+                                });
+
+                                const seconds = 10;
+                                for (let i = 0; i < seconds; i++) {
+                                    progress.report({ increment: seconds, message: `[Open](command:${commandId})  ${message}` });
+                                    await sleep(1000);
+                                }
+                                
+                                openedWindows.delete(infrastructurePath);
+                                resolve(null);
+                            })).then(undefined, error => {
+                                console.error('Error opening file:', error);
+                            });
+                        }
+                    );
+
+                    vscode.commands.registerCommand(commandId, () => {
+                        if (customCancellationToken) {
+                            customCancellationToken.cancel();
+                        }
+
+                        vscode.workspace
+                            .openTextDocument(infrastructurePath)
+                            .then(doc => {
+                                vscode.window.showTextDocument(doc);
+                            });
+                    });
                 },
                 () => {
-                    // Archivo no existe, no hace nada
+                    // File doesn't exist, do nothing
                 }
             );
         }

@@ -2,7 +2,7 @@
   "name": "implementation-opener",
   "displayName": "Implementation Opener",
   "description": "Automatically suggest to open the implementation once you reached the interface.",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -19,7 +19,11 @@
     "commands": [
       {
         "command": "extension.openInfrastructureFile",
-        "title": "Open Corresponding Infrastructure File"
+        "title": "Open Corresponding Infrastructure File",
+        "icon": {
+          "light": "./media/icon.png",
+          "dark": "./media/icon.png"
+        }
       }
     ],
     "keybindings": [
@@ -28,7 +32,16 @@
         "key": "ctrl+alt+i",
         "when": "editorTextFocus"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "extension.openInfrastructureFile",
+          "when": "resourceLangId == typescript || resourceLangId == javascript",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "yarn run compile",
